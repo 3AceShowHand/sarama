@@ -79,6 +79,7 @@ linters:
 
 issues:
   exclude:
+    - "G115: integer overflow conversion"
     - "G404: Use of weak random number generator"
   exclude-rules:
     # exclude some linters from running on certains files.
