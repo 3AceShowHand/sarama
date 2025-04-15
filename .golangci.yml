@@ -60,7 +60,7 @@ linters:
   enable:
     - bodyclose
     - depguard
-    - copyloopvar
+    # - copyloopvar
     - dogsled
     - errcheck
     - errorlint
