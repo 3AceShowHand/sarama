@@ -4,7 +4,10 @@ run:
 
 linters-settings:
   govet:
-    check-shadowing: false
+    enable-all: true
+    disable:
+      - fieldalignment
+      - shadow
   golint:
     min-confidence: 0
   gocyclo:
@@ -57,7 +60,7 @@ linters:
   enable:
     - bodyclose
     - depguard
-    - exportloopref
+    - copyloopvar
     - dogsled
     - errcheck
     - errorlint
