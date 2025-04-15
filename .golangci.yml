@@ -71,6 +71,7 @@ linters:
     - govet
     - misspell
     - nilerr
+    - staticcheck
     - typecheck
     - unconvert
     - unused
