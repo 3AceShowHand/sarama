@@ -2028,6 +2028,67 @@ func TestHandleSuccessNonIdempotentRetryKeepsMute(t *testing.T) {
 	require.Equal(t, 1, msg.retries)
 }
 
+func TestHandleSuccessNonIdempotentRetryFencesAccumulatedMessages(t *testing.T) {
+	config := NewTestConfig()
+	config.Producer.Idempotent = false
+	config.Producer.Retry.Max = 2
+	config.Producer.Retry.Backoff = 0
+
+	parent := &asyncProducer{
+		conf:       config,
+		muter:      newPartitionMuter(),
+		brokers:    make(map[*Broker]*brokerProducer),
+		brokerRefs: make(map[*brokerProducer]int),
+		retries:    make(chan *ProducerMessage, 1),
+		done:       make(chan struct{}),
+		txnmgr:     &transactionManager{},
+	}
+	leader := &Broker{id: 1}
+	parent.client = &stubLeaderClient{leader: leader, cfg: config}
+
+	output := make(chan *produceSet, 1)
+	parent.brokers[leader] = &brokerProducer{
+		parent: parent,
+		broker: leader,
+		output: output,
+		input:  make(chan *ProducerMessage),
+	}
+
+	bp := &brokerProducer{
+		parent:            parent,
+		broker:            leader,
+		input:             make(chan *ProducerMessage),
+		accumulatingBatch: newProduceSet(parent),
+		currentRetries:    make(map[string]map[int32]error),
+	}
+
+	sent := newProduceSet(parent)
+	first := &ProducerMessage{Topic: "topic", Partition: 0, Value: StringEncoder("first")}
+	safeAddMessage(t, sent, first)
+	retryPartitionSet := sent.msgs["topic"][0]
+	if !parent.muter.tryMute(sent) {
+		t.Fatal("expected sent batch to mute partitions")
+	}
+
+	next := &ProducerMessage{Topic: "topic", Partition: 0, Value: StringEncoder("next")}
+	safeAddMessage(t, bp.accumulatingBatch, next)
+
+	response := new(ProduceResponse)
+	response.AddTopicPartition("topic", 0, ErrRequestTimedOut)
+	bp.handleSuccess(sent, response)
+
+	retryMsg := assertDoneWithin(t, parent.retries, 2*time.Second)
+	require.Equal(t, next, retryMsg)
+	require.Equal(t, 1, next.retries)
+	require.True(t, bp.accumulatingBatch.empty())
+	require.Equal(t, ErrRequestTimedOut, bp.currentRetries["topic"][0])
+
+	retrySet := assertDoneWithin(t, output, 2*time.Second)
+	parent.muter.unmute(retrySet)
+	require.Equal(t, retryPartitionSet, retrySet.msgs["topic"][0])
+	require.Equal(t, 1, first.retries)
+}
+
 func TestRetryBatchReleasesMuteOnShutdown(t *testing.T) {
 	config := NewTestConfig()
 	config.Producer.Idempotent = false

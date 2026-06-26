@@ -1410,7 +1410,8 @@ func (bp *brokerProducer) handleSuccess(sent *produceSet, response *ProduceRespo
 					leader, leaderErr := bp.parent.client.Leader(topic, partition)
 					leaderChanged = leaderErr == nil && leader != nil && leader.ID() != bp.broker.ID()
 				}
-				if bp.parent.conf.Producer.Idempotent || leaderChanged {
+				dropped := bp.accumulatingBatch.dropPartition(topic, partition)
+				if bp.parent.conf.Producer.Idempotent || leaderChanged || len(dropped) > 0 {
 					if bp.currentRetries[topic] == nil {
 						bp.currentRetries[topic] = make(map[int32]error)
 					}
@@ -1420,10 +1421,8 @@ func (bp *brokerProducer) handleSuccess(sent *produceSet, response *ProduceRespo
 					bp.parent.abandonBrokerConnection(bp)
 				}
 				go bp.parent.retryBatch(topic, partition, pSet, block.Err, true)
-				if bp.parent.conf.Producer.Idempotent {
-					// dropping the following messages has the side effect of incrementing their retry count
-					bp.parent.retryMessages(bp.accumulatingBatch.dropPartition(topic, partition), block.Err)
-				}
+				// dropping the following messages has the side effect of incrementing their retry count
+				bp.parent.retryMessages(dropped, block.Err)
 			}
 		})
 	}
